@@ -18,6 +18,7 @@ import logging
 import shutil
 from pathlib import Path
 from typing import Callable
+from tqdm import tqdm 
 
 import datasets
 import numpy as np
@@ -25,6 +26,8 @@ import packaging.version
 import PIL.Image
 import torch
 import torch.utils
+import gc
+
 from datasets import concatenate_datasets, load_dataset
 from huggingface_hub import HfApi, snapshot_download
 from huggingface_hub.constants import REPOCARD_NAME
@@ -364,6 +367,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         force_cache_sync: bool = False,
         download_videos: bool = True,
         video_backend: str | None = None,
+        language_embedding_model_id: str | None = None,
     ):
         """
         2 modes are available for instantiating this class, depending on 2 different use cases:
@@ -476,6 +480,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         self.revision = revision if revision else CODEBASE_VERSION
         self.video_backend = video_backend if video_backend else get_safe_default_codec()
         self.delta_indices = None
+        self.language_embedding_model_id = language_embedding_model_id  
 
         # Unused attributes
         self.image_writer = None
@@ -514,6 +519,71 @@ class LeRobotDataset(torch.utils.data.Dataset):
         if self.delta_timestamps is not None:
             check_delta_timestamps(self.delta_timestamps, self.fps, self.tolerance_s)
             self.delta_indices = get_delta_indices(self.delta_timestamps, self.fps)
+
+
+
+
+#############change #######################################################################################
+        
+        if self.language_embedding_model_id:
+                self.tasks_embeddings()
+                print(self.meta.task_embeddings)
+        else: 
+             print("No language embedding model provided. Skipping task embedding.\n")
+             print(self.meta.tasks)
+
+
+    def tasks_embeddings(self, device="cuda"):
+        from transformers import AutoTokenizer, AutoModel
+        print(f"Loading tokenizer and model: {self.language_embedding_model_id}")
+        
+        if device.startswith("cuda"):
+            print(f"[Before Load] GPU reserved : {torch.cuda.memory_reserved() / 1e6:.2f} MB")
+
+        tokenizer = AutoTokenizer.from_pretrained(self.language_embedding_model_id)
+        model = AutoModel.from_pretrained(self.language_embedding_model_id).to(device)
+        model.eval()
+
+        if device.startswith("cuda"):
+            print(f"[After Load] GPU reserved : {torch.cuda.memory_reserved() / 1e6:.2f} MB")
+
+        print("Starting embedding of tasks...\n")
+
+        self.meta.task_embeddings = {}
+
+        for idx in tqdm(list(self.meta.tasks.keys()), desc="Embedding tasks"):
+            task = self.meta.tasks[idx]
+            print(f"Processing task {idx}: {task}")
+
+            inputs = tokenizer(task, return_tensors="pt", padding=True, truncation=True).to(device)
+            with torch.no_grad():
+                outputs = model(**inputs)
+                embedding = outputs.last_hidden_state.mean(dim=1).squeeze().cpu()
+
+            self.meta.task_embeddings[idx] = embedding
+
+        print("\nFinished embedding tasks. Cleaning up...")
+
+        # Delete and cleanup
+        del model
+        del tokenizer
+        torch.cuda.empty_cache()
+        gc.collect()
+
+        if device.startswith("cuda"):
+            print(f"[After Delete] GPU reserved : {torch.cuda.memory_reserved() / 1e6:.2f} MB")
+
+        print("Cleanup complete.\n")
+
+
+            
+
+
+
+
+
+                    
+    
 
     def push_to_hub(
         self,
@@ -748,6 +818,8 @@ class LeRobotDataset(torch.utils.data.Dataset):
         task_idx = item["task_index"].item()
         item["task"] = self.meta.tasks[task_idx]
 
+        if self.language_embedding_model_id:
+              item["task_embedding"] = self.meta.task_embeddings[task_idx]
         return item
 
     def __repr__(self):

@@ -361,12 +361,20 @@ class ACT(nn.Module):
             self.encoder_img_feat_input_proj = nn.Conv2d(
                 backbone_model.fc.in_features, config.dim_model, kernel_size=1
             )
+
+        if self.config.task_embedding_dim:
+            self.task_embedding_proj = nn.Linear(config.task_embedding_dim, config.dim_model)
+            
         # Transformer encoder positional embeddings.
         n_1d_tokens = 1  # for the latent
         if self.config.robot_state_feature:
             n_1d_tokens += 1
         if self.config.env_state_feature:
             n_1d_tokens += 1
+        if self.config.task_embedding_dim:
+            n_1d_tokens += 1  
+
+
         self.encoder_1d_feature_pos_embed = nn.Embedding(n_1d_tokens, config.dim_model)
         if self.config.image_features:
             self.encoder_cam_feat_pos_embed = ACTSinusoidalPositionEmbedding2d(config.dim_model // 2)
@@ -501,6 +509,12 @@ class ACT(nn.Module):
 
             encoder_in_tokens.extend(torch.cat(all_cam_features, axis=0))
             encoder_in_pos_embed.extend(torch.cat(all_cam_pos_embeds, axis=0))
+
+        # Add task embeddings if enabled and provided in the batch
+        if self.config.task_embedding_dim and "task_embedding" in batch:
+            task_embed = batch["task_embedding"]  
+            task_embed = self.task_embedding_proj(task_embed)  
+            encoder_in_tokens.append(task_embed)
 
         # Stack all tokens along the sequence dimension.
         encoder_in_tokens = torch.stack(encoder_in_tokens, axis=0)
