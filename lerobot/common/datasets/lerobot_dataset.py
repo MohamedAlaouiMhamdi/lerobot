@@ -527,7 +527,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
         
         if self.language_embedding_model_id:
                 self.tasks_embeddings()
-                print(self.meta.task_embeddings)
         else: 
              print("No language embedding model provided. Skipping task embedding.\n")
              print(self.meta.tasks)
@@ -536,17 +535,10 @@ class LeRobotDataset(torch.utils.data.Dataset):
     def tasks_embeddings(self, device="cuda"):
         from transformers import AutoTokenizer, AutoModel
         print(f"Loading tokenizer and model: {self.language_embedding_model_id}")
-        
-        if device.startswith("cuda"):
-            print(f"[Before Load] GPU reserved : {torch.cuda.memory_reserved() / 1e6:.2f} MB")
 
         tokenizer = AutoTokenizer.from_pretrained(self.language_embedding_model_id)
         model = AutoModel.from_pretrained(self.language_embedding_model_id).to(device)
         model.eval()
-
-        if device.startswith("cuda"):
-            print(f"[After Load] GPU reserved : {torch.cuda.memory_reserved() / 1e6:.2f} MB")
-
         print("Starting embedding of tasks...\n")
 
         self.meta.task_embeddings = {}
@@ -562,28 +554,9 @@ class LeRobotDataset(torch.utils.data.Dataset):
 
             self.meta.task_embeddings[idx] = embedding
 
-        print("\nFinished embedding tasks. Cleaning up...")
-
         # Delete and cleanup
         del model
         del tokenizer
-        torch.cuda.empty_cache()
-        gc.collect()
-
-        if device.startswith("cuda"):
-            print(f"[After Delete] GPU reserved : {torch.cuda.memory_reserved() / 1e6:.2f} MB")
-
-        print("Cleanup complete.\n")
-
-
-            
-
-
-
-
-
-                    
-    
 
     def push_to_hub(
         self,
@@ -1117,15 +1090,19 @@ class MultiLeRobotDataset(torch.utils.data.Dataset):
         root: str | Path | None = None,
         episodes: dict | None = None,
         image_transforms: Callable | None = None,
-        delta_timestamps: dict[list[float]] | None = None,
+        delta_timestamps: dict[str, dict[list[float]]] | None = None,
         tolerances_s: dict | None = None,
         download_videos: bool = True,
         video_backend: str | None = None,
+        language_embedding_model_id: str | None = None,  # Add this parameter
+
     ):
         super().__init__()
         self.repo_ids = repo_ids
         self.root = Path(root) if root else HF_LEROBOT_HOME
         self.tolerances_s = tolerances_s if tolerances_s else dict.fromkeys(repo_ids, 0.0001)
+        self.language_embedding_model_id = language_embedding_model_id  # Store the parameter
+
         # Construct the underlying datasets passing everything but `transform` and `delta_timestamps` which
         # are handled by this class.
         self._datasets = [
@@ -1134,10 +1111,13 @@ class MultiLeRobotDataset(torch.utils.data.Dataset):
                 root=self.root / repo_id,
                 episodes=episodes[repo_id] if episodes else None,
                 image_transforms=image_transforms,
-                delta_timestamps=delta_timestamps,
+                delta_timestamps=delta_timestamps[repo_id] , 
                 tolerance_s=self.tolerances_s[repo_id],
                 download_videos=download_videos,
                 video_backend=video_backend,
+                language_embedding_model_id=self.language_embedding_model_id, 
+
+
             )
             for repo_id in repo_ids
         ]

@@ -25,6 +25,9 @@ from torch.amp import GradScaler
 from torch.optim import Optimizer
 
 from lerobot.common.datasets.factory import make_dataset
+from lerobot.common.datasets.factory import make_dataset, resolve_delta_timestamps
+from lerobot.common.datasets.lerobot_dataset import LeRobotDataset, MultiLeRobotDataset
+from lerobot.common.datasets.online_buffer import OnlineBuffer, compute_sampler_weights
 from lerobot.common.datasets.sampler import EpisodeAwareSampler
 from lerobot.common.datasets.utils import cycle
 from lerobot.common.envs.factory import make_env
@@ -136,9 +139,17 @@ def train(cfg: TrainPipelineConfig):
         eval_env = make_env(cfg.env, n_envs=cfg.eval.batch_size, use_async_envs=cfg.eval.use_async_envs)
 
     logging.info("Creating policy")
+    if isinstance(dataset, MultiLeRobotDataset):
+        ds_meta = dataset._datasets[0].meta
+        print(f"{ds_meta}")
+    else:
+        ds_meta = dataset.meta
+        print(f"{ds_meta}")
+        
+
     policy = make_policy(
         cfg=cfg.policy,
-        ds_meta=dataset.meta,
+        ds_meta=ds_meta,
     )
 
     logging.info("Creating optimizer and scheduler")
