@@ -1094,7 +1094,7 @@ class MultiLeRobotDataset(torch.utils.data.Dataset):
         tolerances_s: dict | None = None,
         download_videos: bool = True,
         video_backend: str | None = None,
-        language_embedding_model_id: str | None = None,  # Add this parameter
+        language_embedding_model_id: str | None = None, 
 
     ):
         super().__init__()
