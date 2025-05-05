@@ -87,6 +87,8 @@ class RecordControlConfig(ControlConfig):
     play_sounds: bool = True
     # Resume recording on an existing dataset.
     resume: bool = False
+    # Embedding model name to use in Evaluation it should be the same as the one used to train the policy .
+    emb_id: str | None = None
 
     def __post_init__(self):
         # HACK: We parse again the cli args here to get the pretrained path if there was one.

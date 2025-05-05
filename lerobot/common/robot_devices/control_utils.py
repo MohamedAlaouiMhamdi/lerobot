@@ -176,6 +176,7 @@ def warmup_record(
     warmup_time_s,
     display_data,
     fps,
+    
 ):
     control_loop(
         robot=robot,
@@ -196,6 +197,7 @@ def record_episode(
     policy,
     fps,
     single_task,
+    emb_id,
 ):
     control_loop(
         robot=robot,
@@ -207,9 +209,32 @@ def record_episode(
         fps=fps,
         teleoperate=policy is None,
         single_task=single_task,
+        emb_id=emb_id
     )
 
+    ############Compute task embedding  ##############
+def compute_task_embedding(single_task, emb_idd,device="cuda"):
+        from transformers import AutoTokenizer, AutoModel
+        print(f"Loading tokenizer and model: {emb_idd}")
 
+        try:
+              tokenizer = AutoTokenizer.from_pretrained(emb_idd)
+              model = AutoModel.from_pretrained(emb_idd).to(device)
+        except Exception as e:
+                 raise ValueError(f"Failed to load tokenizer or model for `emb_idd={emb_idd}`: {e}")
+        
+        model.eval()
+        print("Starting embedding of tasks...\n")
+        inputs = tokenizer(single_task, return_tensors="pt", padding=True, truncation=True).to(device)
+        with torch.no_grad():
+            outputs = model(**inputs)
+            embedding = outputs.last_hidden_state.mean(dim=1).squeeze().cpu()
+
+        print(f"Task embedding shape: {embedding.shape}")
+        # Delete and cleanup
+        del model
+        del tokenizer
+        return embedding
 @safe_stop_image_writer
 def control_loop(
     robot,
@@ -221,6 +246,8 @@ def control_loop(
     policy: PreTrainedPolicy = None,
     fps: int | None = None,
     single_task: str | None = None,
+    emb_id: str | None = None,
+    emb = None,
 ):
     # TODO(rcadene): Add option to record logs
     if not robot.is_connected:
@@ -240,6 +267,10 @@ def control_loop(
 
     if dataset is not None and fps is not None and dataset.fps != fps:
         raise ValueError(f"The dataset fps should be equal to requested fps ({dataset['fps']} != {fps}).")
+    # compute task embedding 
+    if policy is not None and policy.config.task_embedding_dim is not None and single_task is not None:
+              print (f"embedding dim {policy.config.task_embedding_dim}")
+              emb = compute_task_embedding(single_task,emb_id)
 
     timestamp = 0
     start_episode_t = time.perf_counter()
@@ -250,6 +281,9 @@ def control_loop(
             observation, action = robot.teleop_step(record_data=True)
         else:
             observation = robot.capture_observation()
+            if  emb is not None:
+                # Add the task embedding to the observation
+                observation["task_embedding"]=emb 
 
             if policy is not None:
                 pred_action = predict_action(
@@ -261,6 +295,8 @@ def control_loop(
                 action = {"action": action}
 
         if dataset is not None:
+            if "task_embedding" in observation:
+                    observation = {k: v for k, v in observation.items() if k != "task_embedding"}
             frame = {**observation, **action, "task": single_task}
             dataset.add_frame(frame)
 

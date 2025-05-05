@@ -305,6 +305,8 @@ def record(
             policy=policy,
             fps=cfg.fps,
             single_task=cfg.single_task,
+            emb_id=cfg.emb_id,
+
         )
 
         # Execute a few seconds without recording to give time to manually reset the environment
